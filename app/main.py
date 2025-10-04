@@ -1,23 +1,17 @@
+# app/main.py
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+app = FastAPI()
+
+# (optional, but recommended so the frontend can call the API)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or restrict to your domain later
+    allow_origins=["*"],       # or restrict to your Vercel URL later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-from fastapi import FastAPI, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from typing import List, Optional
-
-from .db import get_db
-from . import models, schemas
-from .utils import haversine_km
-
-app = FastAPI(title="OH Providers API")
 
 @app.get("/health")
 def health():
