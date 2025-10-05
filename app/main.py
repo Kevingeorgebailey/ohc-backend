@@ -1,50 +1,65 @@
 # app/main.py
-from fastapi import FastAPI
+from __future__ import annotations
+
+import os
+from typing import Iterator
+
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
-app = FastAPI()
+from app import models, schemas
+from app.db import SessionLocal
 
-# (optional, but recommended so the frontend can call the API)
+
+def _allowed_origins() -> list[str]:
+    raw = os.getenv("ALLOWED_ORIGINS")
+    if not raw:
+        return ["*"]
+    parts = [p.strip() for p in raw.replace(" ", ",").split(",")]
+    return [p for p in parts if p] or ["*"]
+
+
+# ---------- FastAPI app ----------
+app = FastAPI(
+    title="OH Compare API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # or restrict to your Vercel URL later
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ---------- DB dependency ----------
+def get_db() -> Iterator[Session]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ---------- Routes ----------
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
     return {"status": "ok"}
 
-@app.get("/providers", response_model=List[schemas.ProviderOut])
+@app.get("/providers", response_model=list[schemas.ProviderOut])
 def list_providers(
-    lat: Optional[float] = Query(None, description="Latitude for radius search"),
-    lon: Optional[float] = Query(None, description="Longitude for radius search"),
-    radius_km: float = Query(50.0, description="Radius in km"),
+    limit: int = 50,
+    offset: int = 0,
     db: Session = Depends(get_db),
-):
-    providers = db.query(models.Provider).join(models.Location).all()
+) -> list[schemas.ProviderOut]:
+    q = db.query(models.Provider).offset(offset).limit(limit)
+    return q.all()
 
-    if lat is None or lon is None:
-        return providers
-
-    filtered = []
-    for p in providers:
-        for loc in p.locations:
-            try:
-                if loc.latitude and loc.longitude:
-                    d = haversine_km(float(loc.latitude), float(loc.longitude), lat, lon)
-                    if d <= radius_km:
-                        filtered.append(p)
-                        break
-            except ValueError:
-                continue
-    return filtered
-
-@app.get("/providers/{provider_id}", response_model=schemas.ProviderOut)
-def get_provider(provider_id: int, db: Session = Depends(get_db)):
-    p = db.query(models.Provider).filter(models.Provider.id == provider_id).first()
-    if not p:
-        raise HTTPException(status_code=404, detail="Provider not found")
-    return p
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"docs": "/docs", "health": "/health"}
